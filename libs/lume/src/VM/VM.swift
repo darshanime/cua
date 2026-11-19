@@ -179,6 +179,8 @@ class VM {
         usbMassStoragePaths: [Path]? = nil, additionalDiskPaths: [Path]? = nil,
         stackedDiskSpecs: [StackedDiskSpec]? = nil,
         vsockForwards: [VsockForwarder.Rule]? = nil,
+        nbdDisks: NBDDisks? = nil,
+        stopTimeout: TimeInterval? = nil,
         networkMode: NetworkMode? = nil, clipboard: Bool = false,
         vncPolicy: VNCPolicy = .enabled
     ) async throws {
@@ -327,6 +329,7 @@ class VM {
                 usbMassStoragePaths: usbMassStoragePaths,
                 additionalDiskPaths: additionalDiskPaths,
                 stackedDiskSpecs: stackedDiskSpecs,
+                nbdDisks: nbdDisks,
                 networkMode: networkMode
             )
             Logger.info(
@@ -343,6 +346,12 @@ class VM {
             guard let service = virtualizationService else {
                 Logger.error("Virtualization service is nil", metadata: ["name": vmDirContext.name])
                 throw VMError.internalError("Virtualization service not initialized")
+            }
+            // The guest can't get a failed NBD disk back, so the run ends now rather
+            // than when someone stops the VM.
+            nbdDisks?.monitor.onFailure = { [name = vmDirContext.name] in
+                Logger.error("Forcing the VM off: an NBD disk failed", metadata: ["name": name])
+                forceStop(service, name: name)
             }
 
             let presenter = displayPresenterFactory(displayMode, vncService)
@@ -497,9 +506,18 @@ class VM {
                 }
             }
 
+            let gracefulStop = stopTimeout.map {
+                GracefulStop(service: service, timeout: $0, name: vmDirContext.name)
+            }
             try await service.waitForStop()
             Logger.info("VM lifecycle ended", metadata: ["name": vmDirContext.name])
             await cleanupSession()
+            if nbdDisks?.monitor.failed == true {
+                throw VMError.nbdDiskFailed(vmDirContext.name)
+            }
+            if let gracefulStop, gracefulStop.forced {
+                throw VMError.forcedStop(vmDirContext.name)
+            }
         } catch {
             Logger.error(
                 "Failed in VM.run",
@@ -516,6 +534,8 @@ class VM {
                 try? await service.stop()
             }
             await cleanupSession()
+            // A VM forced off after its disk failed can stop with an error of its own.
+            if nbdDisks?.monitor.failed == true { throw VMError.nbdDiskFailed(vmDirContext.name) }
             throw error
         }
     }
@@ -1293,6 +1313,7 @@ class VM {
         usbMassStoragePaths: [Path]? = nil,
         additionalDiskPaths: [Path]? = nil,
         stackedDiskSpecs: [StackedDiskSpec]? = nil,
+        nbdDisks: NBDDisks? = nil,
         networkMode: NetworkMode? = nil
     ) throws -> VMVirtualizationServiceContext {
         // This is a diagnostic log to track actual file paths on disk for debugging
@@ -1316,6 +1337,7 @@ class VM {
             usbMassStoragePaths: usbMassStoragePaths,
             additionalDiskPaths: additionalDiskPaths,
             stackedDiskSpecs: stackedDiskSpecs,
+            nbdDisks: nbdDisks,
             networkMode: effectiveNetworkMode
         )
     }
