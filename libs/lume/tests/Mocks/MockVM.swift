@@ -27,6 +27,8 @@ class MockVM: VM {
         usbMassStoragePaths: [Path]? = nil, additionalDiskPaths: [Path]? = nil,
         stackedDiskSpecs: [StackedDiskSpec]? = nil,
         vsockForwards: [VsockForwarder.Rule]? = nil,
+        nbdDisks: NBDDisks? = nil,
+        stopTimeout: TimeInterval? = nil,
         networkMode: NetworkMode? = nil, clipboard: Bool = false,
         vncPolicy: VNCPolicy = .enabled
     ) async throws {
@@ -38,6 +40,8 @@ class MockVM: VM {
             additionalDiskPaths: additionalDiskPaths,
             stackedDiskSpecs: stackedDiskSpecs,
             vsockForwards: vsockForwards,
+            nbdDisks: nbdDisks,
+            stopTimeout: stopTimeout,
             networkMode: networkMode, clipboard: clipboard,
             vncPolicy: vncPolicy
         )
